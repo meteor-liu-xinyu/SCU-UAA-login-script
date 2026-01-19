@@ -20,6 +20,7 @@
     let firstAttemptTs = 0;
     const MAX_ATTEMPTS = 5;
     const WINDOW_MS = 60 * 1000;
+    const INITIAL_WAIT_MS = 800; // 初始等待（ms），让页面和验证码有时间加载
 
     async function ocr_external_from_img(imgEl, provider) {
         if (!imgEl) throw new Error('no image element');
@@ -202,16 +203,44 @@
         }
     }
 
-    function initAutoOnLoad() {
-        // observe image load to trigger OCR
-        const img = document.querySelector('.captcha-img') || null;
-        if (img) {
-            img.addEventListener('load', () => { setTimeout(() => mainProcess(false), 300); });
-            // if already loaded
-            if (img.complete) setTimeout(() => mainProcess(false), 300);
+    // 等待直到能找到验证码图片或超时
+    async function waitForCaptchaImage(timeout = 5000, pollInterval = 250) {
+        const end = Date.now() + timeout;
+        while (Date.now() < end) {
+            const img = document.querySelector('.captcha-img') || document.querySelector('img[alt*="captcha"]') || document.querySelector('img.captcha');
+            if (img) {
+                if (img.complete) return img;
+                // 等待图片的 load 事件或短超时
+                try {
+                    await new Promise(resolve => {
+                        const onLoad = () => { img.removeEventListener('load', onLoad); resolve(true); };
+                        img.addEventListener('load', onLoad);
+                        // 以防 load 事件不触发，短超时后继续循环
+                        setTimeout(resolve, pollInterval);
+                    });
+                    if (img.complete) return img;
+                } catch (e) { /* ignore */ }
+            }
+            await new Promise(r => setTimeout(r, pollInterval));
         }
-        // also try when DOM content loaded
-        document.addEventListener('DOMContentLoaded', () => { setTimeout(() => mainProcess(false), 600); });
+        return null;
+    }
+
+    async function initAutoOnLoad() {
+        // 初始短等待，给页面脚本时间运行
+        await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
+
+        const img = await waitForCaptchaImage(5000, 300);
+        if (img) {
+            // 当图片加载完成或已完成时触发主流程
+            if (img.complete) setTimeout(() => mainProcess(false), 300);
+            img.addEventListener('load', () => { setTimeout(() => mainProcess(false), 300); });
+        } else {
+            // 回退：如果未找到验证码图片，还是在 DOMContentLoaded 时尝试一次
+            document.addEventListener('DOMContentLoaded', () => { setTimeout(() => mainProcess(false), 600); });
+            // 并在初始等待后再尝试一次
+            setTimeout(() => mainProcess(false), INITIAL_WAIT_MS + 500);
+        }
     }
 
     initAutoOnLoad();
