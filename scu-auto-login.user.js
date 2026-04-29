@@ -202,13 +202,16 @@
             };
             // try locate the captcha image by common selectors used on SCU login
             const imgEl = document.querySelector('.captcha-img') || document.querySelector('img[alt*="captcha"]') || document.querySelector('img.captcha') || null;
-            if (!imgEl) {
-                if (force) alert('未找到验证码图片元素');
-                return;
-            }
-            if (!settings.ocrProvider) {
-                if (force) alert('未设置 OCR 服务地址。');
-                return;
+            // 仅在启用 OCR 时，才强制要求验证码图片与 OCR 服务地址
+            if (settings.autoOcrCaptcha) {
+                if (!imgEl) {
+                    if (force) alert('未找到验证码图片元素');
+                    return;
+                }
+                if (!settings.ocrProvider) {
+                    if (force) alert('未设置 OCR 服务地址。');
+                    return;
+                }
             }
 
             const now = Date.now();
