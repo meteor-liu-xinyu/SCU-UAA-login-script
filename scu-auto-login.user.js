@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SCU 统一身份认证自动登录
 // @namespace    https://github.com/meteor-liu-xinyu
-// @version      0.1
+// @version      1.0
 // @description  在四川大学统一身份认证页自动使用外部OCR识别验证码并尝试填写学号/密码并登录。
 // @match        *://id.scu.edu.cn/*
 // @run-at       document-end
@@ -153,22 +153,31 @@
             const didFillCaptcha = (!settings.autoOcrCaptcha) || (captchaInput && (captchaInput.value || ocrResult));
             const filledAll = filledUsername && filledPassword && didFillCaptcha;
 
-            // submit（仅在开启自动提交时点击按钮），若不开启自动提交但已完成填充，则视为成功以停止重试
+            // submit：只有在同时开启自动填写学号和密码时才真正允许自动提交
+            const effectiveAutoSubmit = settings.autoSubmit && settings.autoFillUsername && settings.autoFillPassword;
             let submitted = false;
-            if (settings.autoSubmit) {
-                const formEl = (captchaInput && captchaInput.closest) ? captchaInput.closest('form') : (imgEl && imgEl.closest ? imgEl.closest('form') : null);
-                if (formEl) {
-                    const btn = formEl.querySelector('button[type="submit"], input[type="submit"]');
-                    if (btn) { btn.click(); submitted = true; }
-                }
-                if (!submitted) {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    for (const b of buttons) {
-                        const t = (b.textContent||'').replace(/\s+/g,'');
-                        if (t.includes('登录') || t.toLowerCase().includes('login')) { b.click(); submitted = true; break; }
+            if (effectiveAutoSubmit) {
+                // 当未开启 OCR 自动识别时，等待验证码输入框填入至少 4 个字符才提交
+                const captchaReadyForSubmit = settings.autoOcrCaptcha ? true : (captchaInput && (captchaInput.value || '').trim().length >= 4);
+                if (captchaReadyForSubmit) {
+                    const formEl = (captchaInput && captchaInput.closest) ? captchaInput.closest('form') : (imgEl && imgEl.closest ? imgEl.closest('form') : null);
+                    if (formEl) {
+                        const btn = formEl.querySelector('button[type="submit"], input[type="submit"]');
+                        if (btn) { btn.click(); submitted = true; }
                     }
+                    if (!submitted) {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        for (const b of buttons) {
+                            const t = (b.textContent||'').replace(/\s+/g,'');
+                            if (t.includes('登录') || t.toLowerCase().includes('login')) { b.click(); submitted = true; break; }
+                        }
+                    }
+                } else {
+                    // 不满足验证码长度时，不提交；让主流程继续重试或等待用户填写
+                    submitted = false;
                 }
             } else {
+                // 如果不允许自动提交，但所有字段已经被填写完毕，则视为“已完成”以停止自动重试
                 if (filledAll) submitted = true;
             }
 
