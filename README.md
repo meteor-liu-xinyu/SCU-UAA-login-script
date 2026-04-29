@@ -13,6 +13,11 @@
     - `OCR_PROVIDER`：你的 OCR 服务 POST 接口，接收 `{ img: base64 }` 并返回 JSON（建议返回字段 `result` 或 `text`）。
     - `STUDENT_ID`：学号（用于自动填写用户名）。
     - `PASSWORD`：登录密码（注意安全，谨慎保存）。
+    - 新增开关（在脚本顶部设置为 `true` 或 `false`）：
+      - `AUTO_FILL_USERNAME`：是否自动填写学号。
+      - `AUTO_FILL_PASSWORD`：是否自动填写密码。
+      - `AUTO_OCR_CAPTCHA`：是否自动识别并填写验证码。
+      - `AUTO_SUBMIT`：是否在填入后自动提交表单（关闭时仅填充不提交）。
 
 - **行为**:
   - 页面加载或验证码图片刷新时自动触发 OCR 并填写验证码。

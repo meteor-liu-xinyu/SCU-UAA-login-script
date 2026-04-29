@@ -14,6 +14,11 @@
     const OCR_PROVIDER = 'https://example.com/ocr'; // <- 在此填入你的 OCR 服务 URL
     const STUDENT_ID = 'yourStudentId'; // <- 在此填入学号
     const PASSWORD = 'yourPassword'; // <- 在此填入密码（谨慎）
+    // 开关：开启/关闭各自动化步骤（可设置为 true/false）
+    const AUTO_FILL_USERNAME = true; // 自动填写学号
+    const AUTO_FILL_PASSWORD = true; // 自动填写密码
+    const AUTO_OCR_CAPTCHA = true;   // 自动识别并填写验证码
+    const AUTO_SUBMIT = true;        // 自动提交登录表单
 
     // 重试控制：1分钟内最多5次
     let attemptCount = 0;
@@ -102,44 +107,71 @@
             const usernameInput = findUsernameInput();
             const captchaInput = findCaptchaInput(imgEl);
 
-            if (usernameInput && settings.studentId && settings.studentId.trim()) {
-                usernameInput.value = settings.studentId.trim();
-                usernameInput.dispatchEvent(new Event('input', { bubbles: true }));
+            // 处理用户名
+            let filledUsername = false;
+            if (settings.autoFillUsername) {
+                if (usernameInput && settings.studentId && settings.studentId.trim()) {
+                    usernameInput.value = settings.studentId.trim();
+                    usernameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    filledUsername = true;
+                } else {
+                    filledUsername = false;
+                }
+            } else {
+                filledUsername = true; // 用户选择不自动填写视为已满足
             }
 
+            // OCR 验证码（仅在开启且存在图片时执行）
             let ocrResult = '';
-            if (settings.ocrProvider && imgEl) {
+            if (settings.autoOcrCaptcha && settings.ocrProvider && imgEl && captchaInput) {
                 try {
                     ocrResult = await ocr_external_from_img(imgEl, settings.ocrProvider);
                 } catch (e) {
                     console.warn('OCR 请求失败', e);
                 }
-            }
-
-            if (ocrResult && captchaInput) {
-                captchaInput.value = ocrResult;
-                captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-
-            if (settings.password && settings.password.trim()) {
-                let pwdEl = document.querySelector('input[type="password"]') || document.querySelector('input[name="password"]') || document.querySelector('#password');
-                if (pwdEl) { pwdEl.value = settings.password.trim(); pwdEl.dispatchEvent(new Event('input', { bubbles: true })); }
-            }
-
-            // submit
-            let submitted = false;
-            const formEl = (captchaInput && captchaInput.closest) ? captchaInput.closest('form') : (imgEl && imgEl.closest ? imgEl.closest('form') : null);
-            if (formEl) {
-                const btn = formEl.querySelector('button[type="submit"], input[type="submit"]');
-                if (btn) { btn.click(); submitted = true; }
-            }
-            if (!submitted) {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                for (const b of buttons) {
-                    const t = (b.textContent||'').replace(/\s+/g,'');
-                    if (t.includes('登录') || t.toLowerCase().includes('login')) { b.click(); submitted = true; break; }
+                if (ocrResult && captchaInput) {
+                    captchaInput.value = ocrResult;
+                    captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
                 }
             }
+
+            // 密码
+            let pwdEl = document.querySelector('input[type="password"]') || document.querySelector('input[name="password"]') || document.querySelector('#password');
+            let filledPassword = false;
+            if (settings.autoFillPassword) {
+                if (pwdEl && settings.password && settings.password.trim()) {
+                    pwdEl.value = settings.password.trim();
+                    pwdEl.dispatchEvent(new Event('input', { bubbles: true }));
+                    filledPassword = true;
+                } else {
+                    filledPassword = false;
+                }
+            } else {
+                filledPassword = true; // 不自动填写密码视为已满足
+            }
+
+            const didFillCaptcha = (!settings.autoOcrCaptcha) || (captchaInput && (captchaInput.value || ocrResult));
+            const filledAll = filledUsername && filledPassword && didFillCaptcha;
+
+            // submit（仅在开启自动提交时点击按钮），若不开启自动提交但已完成填充，则视为成功以停止重试
+            let submitted = false;
+            if (settings.autoSubmit) {
+                const formEl = (captchaInput && captchaInput.closest) ? captchaInput.closest('form') : (imgEl && imgEl.closest ? imgEl.closest('form') : null);
+                if (formEl) {
+                    const btn = formEl.querySelector('button[type="submit"], input[type="submit"]');
+                    if (btn) { btn.click(); submitted = true; }
+                }
+                if (!submitted) {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    for (const b of buttons) {
+                        const t = (b.textContent||'').replace(/\s+/g,'');
+                        if (t.includes('登录') || t.toLowerCase().includes('login')) { b.click(); submitted = true; break; }
+                    }
+                }
+            } else {
+                if (filledAll) submitted = true;
+            }
+
             return { submitted, ocrResult, usernameInput, captchaInput };
         } catch (e) {
             console.error('fillAndSubmit error', e);
@@ -152,7 +184,11 @@
             const settings = {
                 ocrProvider: OCR_PROVIDER,
                 studentId: STUDENT_ID,
-                password: PASSWORD
+                password: PASSWORD,
+                autoFillUsername: AUTO_FILL_USERNAME,
+                autoFillPassword: AUTO_FILL_PASSWORD,
+                autoOcrCaptcha: AUTO_OCR_CAPTCHA,
+                autoSubmit: AUTO_SUBMIT
             };
             // try locate the captcha image by common selectors used on SCU login
             const imgEl = document.querySelector('.captcha-img') || document.querySelector('img[alt*="captcha"]') || document.querySelector('img.captcha') || null;
