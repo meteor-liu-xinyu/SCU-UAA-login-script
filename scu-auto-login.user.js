@@ -20,13 +20,14 @@
     const AUTO_OCR_CAPTCHA = true;   // 自动识别并填写验证码
     const AUTO_SUBMIT = true;        // 自动提交登录表单
 
-    // 重试控制：1分钟内最多5次
-    let attemptCount = 0;
-    let firstAttemptTs = 0;
     const MAX_ATTEMPTS = 5;
     const WINDOW_MS = 60 * 1000;
     const INITIAL_WAIT_MS = 800; // 初始等待（ms），让页面和验证码有时间加载
 
+    // 重试控制：1分钟内最多5次
+    let attemptCount = 0;
+    let firstAttemptTs = 0;
+    
     async function ocr_external_from_img(imgEl, provider) {
         if (!imgEl) throw new Error('no image element');
         const canvas = document.createElement('canvas');
@@ -229,17 +230,34 @@
                 return;
             }
 
-            // 未成功提交：在允许的次数内尝试刷新验证码并重试
+            // 未成功提交：在允许的次数内处理重试或等待用户输入
             if (attemptCount < MAX_ATTEMPTS && Date.now() - firstAttemptTs <= WINDOW_MS) {
                 try {
-                    // 触发图片点击以尝试刷新验证码（如果支持）
-                    if (imgEl.click) imgEl.click();
-                    // 有时验证码旁有刷新按钮/链接，尝试查找并点击
-                    const refreshBtn = imgEl.closest && imgEl.closest('form') ? imgEl.closest('form').querySelector('.refresh, .captcha-refresh, a[onclick], button[onclick]') : null;
-                    if (refreshBtn && refreshBtn.click) refreshBtn.click();
+                    if (settings.autoOcrCaptcha) {
+                        // 自动 OCR 开启时尝试刷新验证码并重试
+                        if (imgEl.click) imgEl.click();
+                        const refreshBtn = imgEl.closest && imgEl.closest('form') ? imgEl.closest('form').querySelector('.refresh, .captcha-refresh, a[onclick], button[onclick]') : null;
+                        if (refreshBtn && refreshBtn.click) refreshBtn.click();
+                        // 等待一段时间再尝试（5秒）
+                        setTimeout(() => mainProcess(false), 5000);
+                    } else {
+                        // 未开启 OCR：不要自动刷新验证码，改为监听验证码输入变化，用户输入达到要求时再提交一次
+                        if (res && res.captchaInput && !res.captchaInput.dataset.scuAutoListener) {
+                            res.captchaInput.dataset.scuAutoListener = '1';
+                            const onInput = function() {
+                                try {
+                                    if ((res.captchaInput.value || '').trim().length >= 4) {
+                                        res.captchaInput.removeEventListener('input', onInput);
+                                        delete res.captchaInput.dataset.scuAutoListener;
+                                        // 轻微延迟后再次运行主流程以尝试提交
+                                        setTimeout(() => mainProcess(false), 100);
+                                    }
+                                } catch (e) { /* ignore */ }
+                            };
+                            res.captchaInput.addEventListener('input', onInput);
+                        }
+                    }
                 } catch (e) { /* ignore */ }
-                // 等待一段时间再尝试（5秒）
-                setTimeout(() => mainProcess(false), 5000);
             } else {
                 if (force) alert('重试次数已用尽，请手动尝试。');
             }
