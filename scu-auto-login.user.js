@@ -103,6 +103,54 @@
         return null;
     }
 
+    // 辅助：如果页面有登录选项卡，尝试点击“账号登录”选项以切换到账号登录表单
+    function clickAccountLoginTab() {
+        try {
+            // 常见结构： .login-tab span 或 .login-tab .login-tab-item
+            const candidates = Array.from(document.querySelectorAll('.login-tab span, .login-tab .login-tab-item, .login-tab .login-tab-item-active'));
+            for (const el of candidates) {
+                const txt = (el.textContent || '').trim();
+                if (!txt) continue;
+                if (txt.includes('账号登录') || txt.includes('帐号登录')) {
+                    // 尝试普通 click
+                    try { el.click(); return true; } catch (e) {}
+                    // 回退：触发鼠标事件
+                    try {
+                        el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+                        el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+                        el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                        return true;
+                    } catch (e) { /* ignore */ }
+                }
+            }
+            // 退回：通过查找包含文字的任意 span
+            const span = Array.from(document.querySelectorAll('span')).find(s => (s.textContent||'').includes('账号登录') || (s.textContent||'').includes('帐号登录'));
+            if (span) {
+                try { span.click(); return true; } catch (e) {}
+                try {
+                    span.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+                    span.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+                    span.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    return true;
+                } catch (e) { /* ignore */ }
+            }
+        } catch (e) { /* ignore */ }
+        return false;
+    }
+
+    // 确保切换到“账号登录”选项卡：在一个超时时间内轮询并尝试点击（返回 Promise<boolean>）
+    async function ensureAccountLoginTab(timeout = 2000, interval = 150) {
+        const end = Date.now() + timeout;
+        while (Date.now() < end) {
+            try {
+                const ok = clickAccountLoginTab();
+                if (ok) return true;
+            } catch (e) { /* ignore */ }
+            await new Promise(r => setTimeout(r, interval));
+        }
+        return false;
+    }
+
     async function fillAndSubmit(settings, imgEl) {
         try {
             const usernameInput = findUsernameInput();
@@ -200,6 +248,10 @@
                 autoOcrCaptcha: AUTO_OCR_CAPTCHA,
                 autoSubmit: AUTO_SUBMIT
             };
+            // 在执行前确保切换到账号登录选项卡（若存在）
+            try {
+                await ensureAccountLoginTab(2000, 150);
+            } catch (e) { /* ignore */ }
             // try locate the captcha image by common selectors used on SCU login
             const imgEl = document.querySelector('.captcha-img') || document.querySelector('img[alt*="captcha"]') || document.querySelector('img.captcha') || null;
             // 仅在启用 OCR 时，才强制要求验证码图片与 OCR 服务地址
@@ -296,6 +348,9 @@
         // 初始短等待，给页面脚本时间运行
         await new Promise(r => setTimeout(r, INITIAL_WAIT_MS));
 
+        // 尝试切换到账号登录选项卡（若存在），等待最多 2s
+        try { await ensureAccountLoginTab(2000, 150); } catch (e) { /* ignore */ }
+
         const img = await waitForCaptchaImage(5000, 300);
         if (img) {
             // 当图片加载完成或已完成时触发主流程
@@ -303,9 +358,9 @@
             img.addEventListener('load', () => { setTimeout(() => mainProcess(false), 300); });
         } else {
             // 回退：如果未找到验证码图片，还是在 DOMContentLoaded 时尝试一次
-            document.addEventListener('DOMContentLoaded', () => { setTimeout(() => mainProcess(false), 600); });
+            document.addEventListener('DOMContentLoaded', () => { (async ()=>{ try { await ensureAccountLoginTab(2000,150); } catch(e){} setTimeout(() => mainProcess(false), 600); })(); });
             // 并在初始等待后再尝试一次
-            setTimeout(() => mainProcess(false), INITIAL_WAIT_MS + 500);
+            setTimeout(() => { (async ()=>{ try { await ensureAccountLoginTab(2000,150); } catch(e){} mainProcess(false); })(); }, INITIAL_WAIT_MS + 500);
         }
     }
 
