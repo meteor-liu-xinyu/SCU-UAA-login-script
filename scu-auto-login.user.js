@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SCU 统一身份认证自动登录
 // @namespace    https://github.com/meteor-liu-xinyu
-// @version      1.0
+// @version      1.2
 // @description  在四川大学统一身份认证页自动使用外部OCR识别验证码并尝试填写学号/密码并登录。
 // @match        *://id.scu.edu.cn/*
 // @run-at       document-end
@@ -27,6 +27,8 @@
     // 重试控制：1分钟内最多5次
     let attemptCount = 0;
     let firstAttemptTs = 0;
+    // 登录完成标记（例如检测到跳转到 second/auth）
+    let loginCompleted = false;
     
     async function ocr_external_from_img(imgEl, provider) {
         if (!imgEl) throw new Error('no image element');
@@ -248,6 +250,12 @@
                 autoOcrCaptcha: AUTO_OCR_CAPTCHA,
                 autoSubmit: AUTO_SUBMIT
             };
+            // 如果页面已被判定为登录完成，直接返回并重置尝试计数
+            if (loginCompleted) {
+                console.log('scu-auto-login: login already completed, skipping mainProcess');
+                attemptCount = 0; firstAttemptTs = 0;
+                return;
+            }
             // 在执行前确保切换到账号登录选项卡（若存在）
             try {
                 await ensureAccountLoginTab(2000, 150);
@@ -362,6 +370,20 @@
             // 并在初始等待后再尝试一次
             setTimeout(() => { (async ()=>{ try { await ensureAccountLoginTab(2000,150); } catch(e){} mainProcess(false); })(); }, INITIAL_WAIT_MS + 500);
         }
+        // 监听 URL/hash 变化：若跳转到 second/auth 则视为登录完成
+        function checkLoginByUrl() {
+            try {
+                const href = String(window.location.href || '').toLowerCase();
+                const hash = String(window.location.hash || '').toLowerCase();
+                if (href.includes('/frontend/login#') && hash.startsWith('#/second/auth')) {
+                    loginCompleted = true;
+                    attemptCount = 0; firstAttemptTs = 0;
+                    console.log('scu-auto-login: detected /second/auth — treating as logged in');
+                }
+            } catch (e) { /* ignore */ }
+        }
+        // 初次检查并订阅变化
+        try { checkLoginByUrl(); window.addEventListener('hashchange', checkLoginByUrl); window.addEventListener('popstate', checkLoginByUrl); } catch (e) { /* ignore */ }
     }
 
     initAutoOnLoad();
